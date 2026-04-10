@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Single-user profile ───────────────────────────────────────────────────────
+
+model Profile {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  avatarUrl String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Google OAuth tokens (encrypted at rest via DATABASE_ENCRYPTION_KEY)
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleTokenExpiry  DateTime?
+
+  settings          Settings?
+  emails            Email[]
+  plannerItems      PlannerItem[]
+  pushSubscriptions PushSubscription[]
+  approvalItems     ApprovalItem[]
+  auditLogs         AuditLog[]
+}
+
+// ─── Email messages synced from Gmail ─────────────────────────────────────────
+
+model Email {
+  id        String   @id @default(cuid())
+  gmailId   String   @unique
+  threadId  String
+  profileId String
+  profile   Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  subject  String?
+  fromName String?
+  fromEmail String
+  toEmails String  @default("[]") // JSON array of email addresses
+  ccEmails String  @default("[]")
+  snippet  String?
+  bodyText String?
+  bodyHtml String?
+
+  receivedAt DateTime
+  isRead     Boolean  @default(false)
+  isStarred  Boolean  @default(false)
+  labels     String   @default("[]") // JSON array of Gmail label strings
+
+  // AI-generated enrichment
+  aiSummary     String?
+  aiCategory    String? // meeting | deadline | personal | work | school | newsletter | other
+  aiPriority    String  @default("normal") // high | normal | low
+  aiTags        String  @default("[]") // JSON: ["needs_reply","meeting","deadline",...]
+  aiConfidence  Float   @default(0)
+  aiProcessedAt DateTime?
+
+  replySuggestions    ReplyDraft[]
+  calendarSuggestions CalendarSuggestion[]
+  extractedTasks      Task[]
+  approvalItems       ApprovalItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId])
+  @@index([threadId])
+  @@index([receivedAt])
+}
+
+// ─── Reply drafts (AI-suggested, approval-gated) ──────────────────────────────
+
+model ReplyDraft {
+  id        String @id @default(cuid())
+  emailId   String
+  email     Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  subject    String?
+  body       String
+  style      String  @default("normal") // concise | normal | formal
+  confidence Float   @default(0)
+
+  status    String  @default("pending") // pending | approved | edited | rejected | sent
+  editedBody String?
+  sentAt    DateTime?
+
+  approvalItem ApprovalItem?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Calendar event suggestions extracted from emails ─────────────────────────
+
+model CalendarSuggestion {
+  id      String @id @default(cuid())
+  emailId String
+  email   Email  @relation(fields: [emailId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime?
+  location    String?
+  type        String    @default("event") // event | deadline | reminder | meeting
+  confidence  Float     @default(0)
+
+  status        String  @default("pending") // pending | approved | rejected | created
+  googleEventId String?
+
+  approvalItem ApprovalItem?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Manual planner items (events, tasks, blocks, reminders) ──────────────────
+
+model PlannerItem {
+  id        String  @id @default(cuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  title       String
+  description String?
+  type        String  @default("task") // event | task | reminder | deadline | block
+  status      String  @default("pending") // pending | done | cancelled
+  priority    String  @default("normal") // high | normal | low
+  tags        String  @default("[]") // JSON array of tag strings
+
+  startTime     DateTime?
+  endTime       DateTime?
+  isAllDay      Boolean   @default(false)
+  isRecurring   Boolean   @default(false)
+  recurringRule String? // RRULE string
+
+  googleEventId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId])
+  @@index([startTime])
+}
+
+// ─── Tasks extracted from emails or attached to planner items ─────────────────
+
+model Task {
+  id            String       @id @default(cuid())
+  emailId       String?
+  email         Email?       @relation(fields: [emailId], references: [id], onDelete: SetNull)
+  plannerItemId String?
+
+  title       String
+  description String?
+  dueDate     DateTime?
+  priority    String    @default("normal")
+  status      String    @default("pending") // pending | done | cancelled
+
+  approvalItem ApprovalItem?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Unified approval queue ────────────────────────────────────────────────────
+
+model ApprovalItem {
+  id        String  @id @default(cuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  type        String // reply | calendar_event | task | reminder
+  status      String @default("pending") // pending | approved | rejected | snoozed | done
+  priority    String @default("normal")
+  title       String
+  description String?
+
+  emailId              String?
+  email                Email?             @relation(fields: [emailId], references: [id], onDelete: SetNull)
+  replyDraftId         String?            @unique
+  replyDraft           ReplyDraft?        @relation(fields: [replyDraftId], references: [id], onDelete: SetNull)
+  calendarSuggestionId String?            @unique
+  calendarSuggestion   CalendarSuggestion? @relation(fields: [calendarSuggestionId], references: [id], onDelete: SetNull)
+  taskId               String?            @unique
+  task                 Task?              @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  snoozedUntil DateTime?
+  processedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId, status])
+}
+
+// ─── Push notification subscriptions ──────────────────────────────────────────
+
+model PushSubscription {
+  id        String  @id @default(cuid())
+  profileId String
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  endpoint  String @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Application settings ──────────────────────────────────────────────────────
+
+model Settings {
+  id        String  @id @default(cuid())
+  profileId String  @unique
+  profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  // AI
+  aiProvider        String  @default("mock") // mock | openai | anthropic
+  defaultReplyStyle String  @default("normal")
+  autoProcessEmails Boolean @default(true)
+
+  // Automation (off by default — approval-first)
+  autoSendReplies  Boolean @default(false)
+  autoCreateEvents Boolean @default(false)
+
+  // Notifications
+  notifyNewEmails  Boolean @default(true)
+  notifyDrafts     Boolean @default(true)
+  notifyMeetings   Boolean @default(true)
+  notifyDeadlines  Boolean @default(true)
+  notifyReminders  Boolean @default(true)
+
+  // Filters
+  trustedSenders String @default("[]") // JSON array
+  trustedDomains String @default("[]")
+
+  // Sync
+  gmailSyncEnabled    Boolean   @default(false)
+  calendarSyncEnabled Boolean   @default(false)
+  lastGmailSync       DateTime?
+  lastCalendarSync    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id        String  @id @default(cuid())
+  profileId String?
+  profile   Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
+
+  action     String // email_synced | reply_approved | reply_sent | event_created | task_created | ...
+  entityType String? // email | reply | event | task
+  entityId   String?
+  details    String? // JSON blob
+
+  createdAt DateTime @default(now())
+
+  @@index([profileId])
+  @@index([createdAt])
+}
