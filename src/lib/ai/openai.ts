@@ -110,6 +110,34 @@ The body should be a complete email reply with greeting and sign-off.`
     return { ...result, style };
   }
 
+  async draftReplyFromInstruction(
+    content: EmailContent,
+    instruction: string,
+    style: ReplyStyle
+  ): Promise<ReplySuggestion> {
+    const styleGuide = {
+      concise: "Brief and to the point, 2-3 sentences max.",
+      normal: "Friendly and professional, natural tone.",
+      formal: "Formal and professional language, full sentences.",
+    };
+
+    const result = await jsonCompletion<{
+      subject: string;
+      body: string;
+      tone: string;
+      confidence: number;
+    }>(
+      `Original email:\n${emailContextStr(content)}\n\nUser's reply intent: "${instruction}"`,
+      `Draft a reply email based on the user's intent.
+Style: ${styleGuide[style]}
+The body should be a complete email reply with greeting and sign-off.
+Incorporate the user's exact intent naturally into the reply — do not ignore it.
+Return JSON: { "subject": string, "body": string, "tone": string, "confidence": number (0-1) }`
+    );
+
+    return { ...result, style };
+  }
+
   async extractCalendarEvent(
     content: EmailContent
   ): Promise<CalendarEventSuggestion | null> {

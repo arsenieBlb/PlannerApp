@@ -240,6 +240,94 @@ export class MockAIProvider implements AIProvider {
     };
   }
 
+  async draftReplyFromInstruction(
+    content: EmailContent,
+    instruction: string,
+    style: ReplyStyle
+  ): Promise<ReplySuggestion> {
+    const subject = content.subject ?? "your message";
+    const fromName = content.from.split("<")[0].trim() || "there";
+    const inst = instruction.toLowerCase().trim();
+
+    const greetings: Record<ReplyStyle, string> = {
+      concise: `Hi,`,
+      normal: `Hi ${fromName},`,
+      formal: `Dear ${fromName},`,
+    };
+    const closings: Record<ReplyStyle, string> = {
+      concise: `Thanks`,
+      normal: `Best regards`,
+      formal: `Sincerely`,
+    };
+
+    // Detect intent from instruction
+    const isYes = /\b(yes|sure|ok|okay|works|confirm|accept|agree|fine|absolutely|definitely|of course)\b/.test(inst);
+    const isNo = /\b(no|can'?t|cannot|decline|reject|unavailable|sorry|unfortunately|won'?t|won't)\b/.test(inst);
+    const isDelay = /\b(later|postpone|reschedule|delay|next week|another time|not now|busy)\b/.test(inst);
+    const isQuestion = /\?|more (info|detail|information)|clarif|what|when|where|how/.test(inst);
+
+    let bodyCore = instruction; // fallback — use instruction as-is if nothing matches
+
+    if (isYes && !isNo) {
+      if (style === "concise") {
+        bodyCore = `Confirmed — that works for me.`;
+      } else if (style === "formal") {
+        bodyCore = `Thank you for reaching out. I am happy to confirm and look forward to proceeding as discussed.`;
+      } else {
+        bodyCore = `Thanks for getting in touch! That works perfectly for me. Looking forward to it.`;
+      }
+      // Incorporate any specifics from the instruction
+      const extras = instruction.replace(/yes|sure|ok|okay|works|confirm|accept|agree|fine|absolutely|definitely|of course/gi, "").trim();
+      if (extras.length > 3) {
+        bodyCore += ` ${extras.charAt(0).toUpperCase() + extras.slice(1)}.`;
+      }
+    } else if (isNo && !isYes) {
+      if (style === "concise") {
+        bodyCore = `Unfortunately I won't be able to make it. ${instruction}.`;
+      } else if (style === "formal") {
+        bodyCore = `Thank you for the invitation. Unfortunately, I will not be available. ${instruction}.`;
+      } else {
+        bodyCore = `Thanks for reaching out! Unfortunately I won't be able to join. ${instruction}.`;
+      }
+    } else if (isDelay) {
+      if (style === "concise") {
+        bodyCore = `Could we reschedule? ${instruction}.`;
+      } else if (style === "formal") {
+        bodyCore = `I appreciate the invitation, however I would like to request rescheduling. ${instruction}.`;
+      } else {
+        bodyCore = `Thanks for reaching out! I was wondering if we could find another time — ${instruction}.`;
+      }
+    } else if (isQuestion) {
+      if (style === "concise") {
+        bodyCore = `Quick question — ${instruction}`;
+      } else if (style === "formal") {
+        bodyCore = `Thank you for your message. I have a follow-up question: ${instruction}`;
+      } else {
+        bodyCore = `Thanks for your message! I just wanted to check — ${instruction}`;
+      }
+    } else {
+      // Generic: wrap the instruction in the appropriate style
+      if (style === "concise") {
+        bodyCore = instruction;
+      } else if (style === "formal") {
+        bodyCore = `Thank you for your message. ${instruction.charAt(0).toUpperCase() + instruction.slice(1)}.`;
+      } else {
+        bodyCore = `Thanks for reaching out! ${instruction.charAt(0).toUpperCase() + instruction.slice(1)}.`;
+      }
+    }
+
+    const replySubject = subject.startsWith("Re:") ? subject : `Re: ${subject}`;
+    const fullBody = `${greetings[style]}\n\n${bodyCore}\n\n${closings[style]}`;
+
+    return {
+      subject: replySubject,
+      body: fullBody,
+      style,
+      confidence: 0.80,
+      tone: style === "formal" ? "Professional" : style === "concise" ? "Brief" : "Friendly",
+    };
+  }
+
   async extractCalendarEvent(
     content: EmailContent
   ): Promise<CalendarEventSuggestion | null> {

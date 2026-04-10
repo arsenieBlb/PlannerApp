@@ -44,7 +44,7 @@ export async function POST(
   if (!session?.userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
-  const body = await req.json() as { action: string; style?: string };
+  const body = await req.json() as { action: string; style?: string; instruction?: string };
 
   const email = await prisma.email.findFirst({
     where: { id, profileId: session.userId },
@@ -91,9 +91,7 @@ export async function POST(
 
     case "suggest_reply": {
       const style = (body.style ?? profile?.settings?.defaultReplyStyle ?? "normal") as
-        | "concise"
-        | "normal"
-        | "formal";
+        | "concise" | "normal" | "formal";
       const suggestion = await ai.suggestReply(content, style);
 
       const draft = await prisma.replyDraft.create({
@@ -106,7 +104,6 @@ export async function POST(
         },
       });
 
-      // Add to approval queue
       await prisma.approvalItem.create({
         data: {
           profileId: session.userId,
@@ -121,6 +118,47 @@ export async function POST(
       });
 
       return NextResponse.json({ data: { draft, suggestion } });
+    }
+
+    case "draft_from_instruction": {
+      const style = (body.style ?? profile?.settings?.defaultReplyStyle ?? "normal") as
+        | "concise" | "normal" | "formal";
+      const instruction = (body.instruction as string | undefined)?.trim();
+      if (!instruction) {
+        return NextResponse.json({ error: "instruction is required" }, { status: 400 });
+      }
+
+      const suggestion = await ai.draftReplyFromInstruction(content, instruction, style);
+
+      const draft = await prisma.replyDraft.create({
+        data: {
+          emailId: id,
+          subject: suggestion.subject,
+          body: suggestion.body,
+          style,
+          confidence: suggestion.confidence,
+        },
+      });
+
+      // Remove any existing pending reply approval for this email to avoid duplicates
+      await prisma.approvalItem.deleteMany({
+        where: { emailId: id, type: "reply", status: "pending" },
+      });
+
+      await prisma.approvalItem.create({
+        data: {
+          profileId: session.userId,
+          type: "reply",
+          status: "pending",
+          priority: email.aiPriority === "high" ? "high" : "normal",
+          title: `Reply to: ${email.subject ?? email.fromEmail}`,
+          description: `"${instruction.slice(0, 60)}${instruction.length > 60 ? "…" : ""}"`,
+          emailId: id,
+          replyDraftId: draft.id,
+        },
+      });
+
+      return NextResponse.json({ data: { draft, suggestion, instruction } });
     }
 
     case "extract_calendar": {

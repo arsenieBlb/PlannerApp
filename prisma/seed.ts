@@ -23,13 +23,21 @@ function daysFromNow(n: number, h = 9, m = 0) {
 async function main() {
   console.log("🌱 Seeding realistic demo data…");
 
-  const email = "demo@example.com";
-
-  const profile = await prisma.profile.upsert({
-    where: { email },
-    create: { email, name: "Demo User", avatarUrl: null },
-    update: {},
+  // Use the first real (non-demo) profile if it exists, otherwise fall back to demo
+  let profile = await prisma.profile.findFirst({
+    where: { email: { not: "demo@example.com" } },
+    orderBy: { createdAt: "desc" },
   });
+
+  if (!profile) {
+    profile = await prisma.profile.upsert({
+      where: { email: "demo@example.com" },
+      create: { email: "demo@example.com", name: "Demo User", avatarUrl: null },
+      update: {},
+    });
+  }
+
+  console.log(`   → Seeding for profile: ${profile.email}`);
 
   await prisma.settings.upsert({
     where: { profileId: profile.id },
@@ -37,12 +45,31 @@ async function main() {
     update: {},
   });
 
-  // ─── Clear old seed data ───────────────────────────────────────────────────
-  await prisma.approvalItem.deleteMany({ where: { profileId: profile.id } });
-  await prisma.replyDraft.deleteMany({ where: { email: { profileId: profile.id } } });
-  await prisma.calendarSuggestion.deleteMany({ where: { email: { profileId: profile.id } } });
-  await prisma.task.deleteMany({ where: { email: { profileId: profile.id } } });
-  await prisma.email.deleteMany({ where: { profileId: profile.id } });
+  // ─── Clear ALL old seed data (across all profiles, by known gmailIds) ──────
+  const seedGmailIds = [
+    "seed_001","seed_002","seed_003","seed_004","seed_005",
+    "seed_006","seed_007","seed_008","seed_009","seed_010",
+  ];
+
+  // Delete in dependency order
+  const oldEmails = await prisma.email.findMany({
+    where: { gmailId: { in: seedGmailIds } },
+    select: { id: true },
+  });
+  const oldEmailIds = oldEmails.map((e) => e.id);
+
+  if (oldEmailIds.length > 0) {
+    await prisma.approvalItem.deleteMany({
+      where: { OR: [{ profileId: profile.id }, { emailId: { in: oldEmailIds } }] },
+    });
+    await prisma.replyDraft.deleteMany({ where: { emailId: { in: oldEmailIds } } });
+    await prisma.calendarSuggestion.deleteMany({ where: { emailId: { in: oldEmailIds } } });
+    await prisma.task.deleteMany({ where: { emailId: { in: oldEmailIds } } });
+    await prisma.email.deleteMany({ where: { id: { in: oldEmailIds } } });
+  } else {
+    await prisma.approvalItem.deleteMany({ where: { profileId: profile.id } });
+  }
+
   await prisma.plannerItem.deleteMany({ where: { profileId: profile.id } });
 
   // ─── Emails ───────────────────────────────────────────────────────────────
@@ -313,7 +340,7 @@ Verhuur Amsterdam BV`,
         subject: e.subject,
         fromName: e.fromName,
         fromEmail: e.fromEmail,
-        toEmails: JSON.stringify([email]),
+        toEmails: JSON.stringify([profile.email]),
         snippet: e.snippet,
         bodyText: e.bodyText,
         receivedAt: e.receivedAt,
