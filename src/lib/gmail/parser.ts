@@ -48,10 +48,12 @@ function extractPartsRecursive(
   }
 }
 
-function getHeader(
-  headers: gmail_v1.Schema$MessagePartHeader[],
+/** Shared by full-message parse and metadata-only fetches (e.g. reply threading). */
+export function getGmailPartHeader(
+  headers: gmail_v1.Schema$MessagePartHeader[] | undefined,
   name: string
 ): string | null {
+  if (!headers?.length) return null;
   return (
     headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ??
     null
@@ -83,11 +85,11 @@ export function parseGmailMessage(
   const payload = msg.payload ?? {};
   const headers = payload.headers ?? [];
 
-  const subject = getHeader(headers, "subject");
-  const fromRaw = getHeader(headers, "from") ?? "";
-  const toRaw = getHeader(headers, "to");
-  const ccRaw = getHeader(headers, "cc");
-  const dateRaw = getHeader(headers, "date");
+  const subject = getGmailPartHeader(headers, "subject");
+  const fromRaw = getGmailPartHeader(headers, "from") ?? "";
+  const toRaw = getGmailPartHeader(headers, "to");
+  const ccRaw = getGmailPartHeader(headers, "cc");
+  const dateRaw = getGmailPartHeader(headers, "date");
 
   const { name: fromName, email: fromEmail } = parseEmailAddress(fromRaw);
 

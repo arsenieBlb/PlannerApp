@@ -54,8 +54,8 @@ export function AppSidebar() {
       </nav>
 
       <Link
-        href="/settings"
-        title="Notifications"
+        href="/queue"
+        title="Review queue — pending approvals"
         className="flex h-10 w-10 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground"
       >
         <Bell className="h-5 w-5" />

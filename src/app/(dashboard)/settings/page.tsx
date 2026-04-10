@@ -1,11 +1,14 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { ensureGmailSyncEnabledIfNeeded } from "@/lib/settings-bootstrap";
 import { AppHeader } from "@/components/layout/app-header";
 import { SettingsClient } from "@/components/settings-client";
 
 export default async function SettingsPage() {
   const session = await auth();
   if (!session?.userId) return null;
+
+  await ensureGmailSyncEnabledIfNeeded(session.userId);
 
   const [settings, profile] = await Promise.all([
     prisma.settings.findUnique({ where: { profileId: session.userId } }),

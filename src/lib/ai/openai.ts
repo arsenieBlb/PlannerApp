@@ -80,7 +80,8 @@ Be concise. confidence reflects your certainty about the summary.`
   "priority": "high"|"normal"|"low",
   "tags": array of: "needs_reply"|"meeting"|"deadline"|"urgent"|"personal"|"work"|"school"|"action_required"|"no_reply_needed",
   "confidence": number (0-1),
-  "reasoning": string (one sentence) }`
+  "reasoning": string (one sentence) }
+Use tag needs_reply when a human reply is expected: questions, scheduling/meeting proposals, RSVP, confirmations, or any direct request — not for pure newsletters or receipts.`
     );
     return result;
   }

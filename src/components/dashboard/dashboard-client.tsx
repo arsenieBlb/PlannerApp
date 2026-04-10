@@ -59,6 +59,9 @@ export function DashboardClient({
     try {
       const res = await fetch("/api/gmail/sync", { method: "POST" });
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof data.error === "string" ? data.error : `Sync failed (${res.status})`);
+      }
       if (data.error) throw new Error(data.error);
       toast({
         title: "Sync complete",

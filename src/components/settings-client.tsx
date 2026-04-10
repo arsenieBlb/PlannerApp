@@ -57,8 +57,8 @@ export function SettingsClient({ initialSettings, profile, accessTokenValid }: S
     notifyMeetings: initialSettings?.notifyMeetings ?? true,
     notifyDeadlines: initialSettings?.notifyDeadlines ?? true,
     notifyReminders: initialSettings?.notifyReminders ?? true,
-    gmailSyncEnabled: initialSettings?.gmailSyncEnabled ?? false,
-    calendarSyncEnabled: initialSettings?.calendarSyncEnabled ?? false,
+    gmailSyncEnabled: initialSettings?.gmailSyncEnabled ?? true,
+    calendarSyncEnabled: initialSettings?.calendarSyncEnabled ?? true,
   });
 
   const saveMut = useMutation({
@@ -162,7 +162,7 @@ export function SettingsClient({ initialSettings, profile, accessTokenValid }: S
             <Separator />
             <SettingRow
               label="Auto-send approved replies"
-              description="⚠️ Replies go directly to Gmail when approved"
+              description="When on, approving a reply in the Review queue sends it through your Gmail (real synced threads only). You can also send once per reply with “Send via Gmail” on the card."
               checked={settings.autoSendReplies}
               onChange={(v) => setSetting("autoSendReplies", v)}
               danger

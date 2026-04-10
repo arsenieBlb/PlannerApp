@@ -23,6 +23,8 @@ export const ApprovalActionSchema = z.object({
   action: z.enum(["approve", "reject", "snooze", "edit"]),
   editedContent: z.string().optional(),
   snoozeDuration: z.number().int().positive().optional(), // minutes
+  /** Approve reply only: send through Gmail API (in addition to Settings → auto-send) */
+  sendViaGmail: z.boolean().optional(),
 });
 
 // ─── Calendar / Planner ────────────────────────────────────────────────────

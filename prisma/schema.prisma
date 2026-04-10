@@ -90,6 +90,9 @@ model ReplyDraft {
   editedBody String?
   sentAt    DateTime?
 
+  /// When not sent via Gmail: schema.org JSON-LD + MIME draft for manual send / tooling
+  outboundPayload Json?
+
   approvalItem ApprovalItem?
 
   createdAt DateTime @default(now())
@@ -244,8 +247,8 @@ model Settings {
   trustedDomains String @default("[]")
 
   // Sync
-  gmailSyncEnabled    Boolean   @default(false)
-  calendarSyncEnabled Boolean   @default(false)
+  gmailSyncEnabled    Boolean   @default(true)
+  calendarSyncEnabled Boolean   @default(true)
   lastGmailSync       DateTime?
   lastCalendarSync    DateTime?
 

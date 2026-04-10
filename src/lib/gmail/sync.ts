@@ -5,13 +5,34 @@
 
 import { prisma } from "@/lib/db";
 import { getGmailClient } from "./client";
-import { parseGmailMessage } from "./parser";
+import { getGmailPartHeader, parseGmailMessage } from "./parser";
 import { getAIProvider } from "@/lib/ai/provider";
 import { stringifyArray } from "@/lib/utils";
 import { sendPushToProfile } from "@/lib/push/server";
-import type { PushPayload } from "@/types";
+import type { PushPayload, ReplyStyle } from "@/types";
 
-const MAX_MESSAGES_PER_SYNC = 50;
+/** Gmail list API allows up to 500 per request; we paginate so mail below the first page still syncs. */
+const LIST_PAGE_SIZE = 100;
+const MAX_MESSAGES_LISTED_PER_SYNC = 500;
+
+function normalizeReplyStyle(raw: string | undefined): ReplyStyle {
+  return raw === "concise" || raw === "formal" ? raw : "normal";
+}
+
+/** Meeting invites and proposals usually expect a response even without a literal question mark. */
+function withMeetingNeedsReplyTags(
+  tags: string[],
+  category: string
+): string[] {
+  const set = new Set(tags);
+  if (
+    (category === "meeting" || set.has("meeting")) &&
+    !set.has("no_reply_needed")
+  ) {
+    set.add("needs_reply");
+  }
+  return Array.from(set);
+}
 
 export async function syncGmailForProfile(
   profileId: string,
@@ -28,28 +49,44 @@ export async function syncGmailForProfile(
   });
   if (!profile) throw new Error("Profile not found");
 
-  const maxMessages = options.maxMessages ?? MAX_MESSAGES_PER_SYNC;
+  const maxListed =
+    options.maxMessages ?? MAX_MESSAGES_LISTED_PER_SYNC;
 
-  // List messages (inbox, unread first)
-  const listRes = await gmail.users.messages.list({
-    userId: "me",
-    labelIds: options.labelIds ?? ["INBOX"],
-    maxResults: maxMessages,
-  });
+  const labelIds = options.labelIds ?? ["INBOX"];
+  const messageList: { id?: string | null }[] = [];
+  let pageToken: string | undefined;
 
-  const messageList = listRes.data.messages ?? [];
+  do {
+    const listRes = await gmail.users.messages.list({
+      userId: "me",
+      labelIds,
+      maxResults: Math.min(LIST_PAGE_SIZE, maxListed - messageList.length),
+      pageToken,
+    });
+    const batch = listRes.data.messages ?? [];
+    messageList.push(...batch);
+    pageToken = listRes.data.nextPageToken ?? undefined;
+  } while (
+    pageToken &&
+    messageList.length < maxListed
+  );
 
-  // Fetch known Gmail IDs to skip already-processed
+  const listedGmailIds = messageList
+    .map((m) => m.id)
+    .filter((id): id is string => Boolean(id));
+
   const existingIds = new Set(
     (
       await prisma.email.findMany({
-        where: { profileId, gmailId: { in: messageList.map((m) => m.id!) } },
+        where: { profileId, gmailId: { in: listedGmailIds } },
         select: { gmailId: true },
       })
     ).map((e) => e.gmailId)
   );
 
-  const newMessages = messageList.filter((m) => !existingIds.has(m.id!));
+  const newMessages = messageList.filter(
+    (m) => m.id && !existingIds.has(m.id)
+  );
 
   for (const msgRef of newMessages) {
     try {
@@ -118,12 +155,17 @@ export async function syncGmailForProfile(
           ai.extractTasksAndDeadlines(content),
         ]);
 
+        const finalTags = withMeetingNeedsReplyTags(
+          classification.tags,
+          classification.category
+        );
+
         await prisma.email.update({
           where: { id: email.id },
           data: {
             aiCategory: classification.category,
             aiPriority: classification.priority,
-            aiTags: stringifyArray(classification.tags),
+            aiTags: stringifyArray(finalTags),
             aiConfidence: classification.confidence,
             aiProcessedAt: new Date(),
           },
@@ -184,10 +226,53 @@ export async function syncGmailForProfile(
           });
         }
 
+        if (finalTags.includes("needs_reply")) {
+          const existingReply = await prisma.approvalItem.findFirst({
+            where: {
+              emailId: email.id,
+              type: "reply",
+              status: "pending",
+            },
+          });
+          if (!existingReply) {
+            try {
+              const style = normalizeReplyStyle(
+                profile.settings?.defaultReplyStyle
+              );
+              const replySuggestion = await ai.suggestReply(content, style);
+              const draft = await prisma.replyDraft.create({
+                data: {
+                  emailId: email.id,
+                  subject: replySuggestion.subject,
+                  body: replySuggestion.body,
+                  style,
+                  confidence: replySuggestion.confidence,
+                },
+              });
+              await prisma.approvalItem.create({
+                data: {
+                  profileId,
+                  type: "reply",
+                  status: "pending",
+                  priority: classification.priority,
+                  title: `Reply: ${email.subject ?? "email"}`,
+                  description: `${style} style draft from auto-process`,
+                  emailId: email.id,
+                  replyDraftId: draft.id,
+                },
+              });
+            } catch (err) {
+              errors.push(
+                `Reply draft queue failed for ${email.id}: ${String(err)}`
+              );
+            }
+          }
+        }
+
         // Push notification for high-priority emails needing reply
         if (
           classification.priority === "high" &&
-          classification.tags.includes("needs_reply") &&
+          finalTags.includes("needs_reply") &&
           profile.settings.notifyNewEmails
         ) {
           const payload: PushPayload = {
@@ -221,24 +306,103 @@ export async function syncGmailForProfile(
   return { synced, errors };
 }
 
+/** Seeded / demo rows are not real Gmail messages — API send will always fail. */
+export function isDemoGmailId(gmailId: string): boolean {
+  return gmailId.startsWith("seed_") || gmailId.startsWith("demo_");
+}
+
+function normalizeMessageId(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const t = raw.trim();
+  if (!t) return null;
+  return t.startsWith("<") ? t : `<${t}>`;
+}
+
+/** RFC 5322-style plain-text MIME body for replies (used by send + outbound payload). */
+export function buildMimePlainReply(
+  toEmail: string,
+  subject: string,
+  body: string,
+  threading?: { inReplyTo: string | null; references: string | null }
+): string {
+  const lines: string[] = [`To: ${toEmail}`, `Subject: ${subject}`];
+  if (threading?.inReplyTo) {
+    lines.push(`In-Reply-To: ${threading.inReplyTo}`);
+    lines.push(`References: ${threading.references ?? threading.inReplyTo}`);
+  }
+  lines.push("MIME-Version: 1.0");
+  lines.push("Content-Type: text/plain; charset=utf-8");
+  lines.push("Content-Transfer-Encoding: 7bit");
+  lines.push("");
+  lines.push(body.replace(/\r?\n/g, "\r\n"));
+  return lines.join("\r\n");
+}
+
+export async function resolveGmailReplyThreading(
+  accessToken: string,
+  gmailId: string
+): Promise<{ inReplyTo: string | null; references: string | null }> {
+  if (isDemoGmailId(gmailId)) {
+    return { inReplyTo: null, references: null };
+  }
+  const gmail = getGmailClient(accessToken);
+  try {
+    const msg = await gmail.users.messages.get({
+      userId: "me",
+      id: gmailId,
+      format: "metadata",
+      metadataHeaders: ["Message-ID", "References", "In-Reply-To"],
+    });
+    const headers = msg.data.payload?.headers;
+    const origMid = normalizeMessageId(
+      getGmailPartHeader(headers, "Message-ID") ?? undefined
+    );
+    const prevRefs =
+      getGmailPartHeader(headers, "References") ?? undefined;
+    const prevIrt =
+      getGmailPartHeader(headers, "In-Reply-To") ?? undefined;
+
+    if (origMid) {
+      const inReplyTo = origMid;
+      const references =
+        [prevRefs, prevIrt, origMid].filter(Boolean).join(" ").trim() || origMid;
+      return { inReplyTo, references };
+    }
+  } catch (e) {
+    console.warn("[Gmail] Could not load Message-ID for reply; sending without thread headers:", e);
+  }
+  return { inReplyTo: null, references: null };
+}
+
+/**
+ * Send a reply in-thread. Uses the original message's RFC Message-ID for
+ * In-Reply-To / References (not Gmail threadId — that was causing send failures).
+ */
 export async function sendGmailReply(
   accessToken: string,
   threadId: string,
   toEmail: string,
   subject: string,
-  body: string
+  body: string,
+  options?: { gmailId?: string }
 ): Promise<string> {
-  const gmail = getGmailClient(accessToken);
+  const gmailId = options?.gmailId;
+  if (gmailId && isDemoGmailId(gmailId)) {
+    throw new Error("DEMO_EMAIL");
+  }
 
-  const rawMessage = [
-    `To: ${toEmail}`,
-    `Subject: ${subject}`,
-    `In-Reply-To: ${threadId}`,
-    `References: ${threadId}`,
-    "Content-Type: text/plain; charset=utf-8",
-    "",
+  const gmail = getGmailClient(accessToken);
+  const threading =
+    gmailId && !isDemoGmailId(gmailId)
+      ? await resolveGmailReplyThreading(accessToken, gmailId)
+      : { inReplyTo: null as string | null, references: null as string | null };
+
+  const rawMessage = buildMimePlainReply(
+    toEmail,
+    subject,
     body,
-  ].join("\r\n");
+    threading.inReplyTo ? threading : undefined
+  );
 
   const encoded = Buffer.from(rawMessage)
     .toString("base64")
@@ -250,7 +414,7 @@ export async function sendGmailReply(
     userId: "me",
     requestBody: {
       raw: encoded,
-      threadId,
+      ...(threadId ? { threadId } : {}),
     },
   });
 

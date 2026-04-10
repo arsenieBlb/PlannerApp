@@ -4,18 +4,28 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle, XCircle, Clock, Pencil, Reply, Calendar,
-  ClipboardList, Bell, Loader2, Inbox, ChevronDown
+  ClipboardList, Bell, Loader2, Inbox, ChevronDown, Copy
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { confidenceLabel, confidenceColor, formatRelativeDate } from "@/lib/utils";
 import { format } from "date-fns";
+import type { ReplyOutboundPayload } from "@/types/reply-outbound";
+
+type ApprovalActionResult = {
+  data?: { ok: boolean; action: string };
+  warnings?: string[];
+  outboundEmail?: ReplyOutboundPayload;
+  sentReplyViaGmail?: boolean;
+};
 
 interface ApprovalItem {
   id: string;
@@ -31,22 +41,45 @@ interface ApprovalItem {
   task?: { title: string; description: string | null; dueDate: string | null; priority: string } | null;
 }
 
-async function fetchApprovals(type?: string): Promise<{ data: ApprovalItem[] }> {
+async function fetchApprovals(tab?: string): Promise<{ data: ApprovalItem[] }> {
   const params = new URLSearchParams({ status: "pending" });
-  if (type && type !== "all") params.set("type", type);
+  if (tab && tab !== "all" && tab !== "reminder") {
+    params.set("type", tab);
+  } else if (tab === "reminder") {
+    params.set("type", "calendar_event");
+  }
   const res = await fetch(`/api/approvals?${params}`);
-  return res.json();
+  const json = (await res.json()) as { data: ApprovalItem[] };
+  let items = json.data ?? [];
+  if (tab === "reminder") {
+    items = items.filter((i) => i.calendarSuggestion?.type === "reminder");
+  }
+  return { data: items };
 }
 
-async function doAction(id: string, action: string, editedContent?: string, snoozeDuration?: number) {
+async function doAction(
+  id: string,
+  action: string,
+  opts?: { editedContent?: string; snoozeDuration?: number; sendViaGmail?: boolean }
+) {
+  const { editedContent, snoozeDuration, sendViaGmail } = opts ?? {};
   const res = await fetch(`/api/approvals/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, editedContent, snoozeDuration }),
+    body: JSON.stringify({
+      action,
+      editedContent,
+      snoozeDuration,
+      ...(sendViaGmail !== undefined ? { sendViaGmail } : {}),
+    }),
   });
-  const data = await res.json();
-  if (data.error) throw new Error(typeof data.error === "string" ? data.error : "Action failed");
-  return data.data;
+  const data = (await res.json()) as ApprovalActionResult & { error?: unknown };
+  if (!res.ok) {
+    throw new Error(
+      typeof data.error === "string" ? data.error : `Server error ${res.status}`
+    );
+  }
+  return data;
 }
 
 export function ReviewQueueClient() {
@@ -55,12 +88,24 @@ export function ReviewQueueClient() {
   const [activeTab, setActiveTab] = useState("all");
   const [editingItem, setEditingItem] = useState<ApprovalItem | null>(null);
   const [editContent, setEditContent] = useState("");
+  const [outboundDialog, setOutboundDialog] = useState<ReplyOutboundPayload | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["approvals", activeTab],
     queryFn: () => fetchApprovals(activeTab === "all" ? undefined : activeTab),
     refetchInterval: 30000,
   });
+
+  const { data: settingsPayload } = useQuery({
+    queryKey: ["settings"],
+    queryFn: async () => {
+      const res = await fetch("/api/settings");
+      if (!res.ok) throw new Error("settings");
+      return res.json() as Promise<{ data: { settings: { autoSendReplies: boolean } | null } }>;
+    },
+  });
+
+  const autoSendReplies = settingsPayload?.data?.settings?.autoSendReplies ?? false;
 
   const items = data?.data ?? [];
 
@@ -70,19 +115,50 @@ export function ReviewQueueClient() {
       action,
       editedContent,
       snoozeDuration,
+      sendViaGmail,
     }: {
       id: string;
       action: string;
       editedContent?: string;
       snoozeDuration?: number;
-    }) => doAction(id, action, editedContent, snoozeDuration),
-    onSuccess: (_, vars) => {
+      sendViaGmail?: boolean;
+    }) => doAction(id, action, { editedContent, snoozeDuration, sendViaGmail }),
+    onSuccess: (result, vars) => {
       qc.invalidateQueries({ queryKey: ["approvals"] });
-      const labels: Record<string, string> = { approve: "Approved", reject: "Rejected", snooze: "Snoozed" };
-      toast({ title: labels[vars.action] ?? "Done", variant: "success" });
+      const labels: Record<string, string> = {
+        approve: "Approved ✓",
+        reject: "Rejected",
+        edit: "Saved",
+      };
+      if (result?.outboundEmail) {
+        setOutboundDialog(result.outboundEmail);
+      }
+      if (result?.sentReplyViaGmail) {
+        qc.invalidateQueries({ queryKey: ["emails"] });
+        toast({
+          title: "Reply sent via Gmail",
+          description: "Check your Sent folder in Gmail.",
+          variant: "success",
+        });
+      } else if (vars.action === "snooze") {
+        const m = vars.snoozeDuration ?? 60;
+        const desc =
+          m >= 60 && m % 60 === 0
+            ? `${m / 60} hour${m === 60 ? "" : "s"}`
+            : `${m} minutes`;
+        toast({ title: "Snoozed", description: `We’ll surface this again in ${desc}.`, variant: "success" });
+      } else if (result?.warnings?.length) {
+        toast({
+          title: labels[vars.action] ?? "Done",
+          description: result.warnings[0],
+          variant: "default",
+        });
+      } else {
+        toast({ title: labels[vars.action] ?? "Done", variant: "success" });
+      }
       if (editingItem) setEditingItem(null);
     },
-    onError: (e) => toast({ title: "Failed", description: (e as Error).message, variant: "destructive" }),
+    onError: (e) => toast({ title: "Action failed", description: (e as Error).message, variant: "destructive" }),
   });
 
   const tabs = [
@@ -127,8 +203,15 @@ export function ReviewQueueClient() {
                 <ApprovalCard
                   key={item.id}
                   item={item}
-                  loading={actionMut.isPending && false}
-                  onApprove={() => actionMut.mutate({ id: item.id, action: "approve" })}
+                  autoSendReplies={autoSendReplies}
+                  actionLoading={actionMut.isPending && actionMut.variables?.id === item.id}
+                  onApprove={(opts) =>
+                    actionMut.mutate({
+                      id: item.id,
+                      action: "approve",
+                      ...(opts?.sendViaGmail !== undefined ? { sendViaGmail: opts.sendViaGmail } : {}),
+                    })
+                  }
                   onReject={() => actionMut.mutate({ id: item.id, action: "reject" })}
                   onSnooze={() => actionMut.mutate({ id: item.id, action: "snooze", snoozeDuration: 60 })}
                   onEdit={() => {
@@ -143,6 +226,102 @@ export function ReviewQueueClient() {
           )}
         </ScrollArea>
       </Tabs>
+
+      {/* Structured outbound reply (when Gmail did not send) */}
+      <Dialog open={!!outboundDialog} onOpenChange={(open) => !open && setOutboundDialog(null)}>
+        <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-3">
+          <DialogHeader>
+            <DialogTitle>Structured email payload</DialogTitle>
+            <p className="text-sm text-muted-foreground font-normal">
+              schema.org JSON-LD plus an RFC-style MIME draft you can paste into a client or tooling.
+              {outboundDialog?.flags.demoInboxData && (
+                <span className="block mt-1 text-amber-700 dark:text-amber-400">
+                  Demo/seed thread — threading headers may be empty; use To / Subject / body in your mail app.
+                </span>
+              )}
+            </p>
+          </DialogHeader>
+          {outboundDialog && (
+            <Tabs defaultValue="schema" className="flex-1 min-h-0 flex flex-col">
+              <TabsList className="h-8 shrink-0">
+                <TabsTrigger value="schema" className="text-xs">
+                  Schema.org (JSON-LD)
+                </TabsTrigger>
+                <TabsTrigger value="mime" className="text-xs">
+                  MIME draft
+                </TabsTrigger>
+                <TabsTrigger value="all" className="text-xs">
+                  Full JSON
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="schema" className="flex-1 min-h-0 mt-2 space-y-2 data-[state=inactive]:hidden">
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(
+                        JSON.stringify(outboundDialog.schemaOrgEmailMessage, null, 2)
+                      );
+                      toast({ title: "Copied JSON-LD" });
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </Button>
+                </div>
+                <pre className="text-xs whitespace-pre-wrap font-mono bg-muted/40 rounded-md border p-3 max-h-[45vh] overflow-auto">
+                  {JSON.stringify(outboundDialog.schemaOrgEmailMessage, null, 2)}
+                </pre>
+              </TabsContent>
+              <TabsContent value="mime" className="flex-1 min-h-0 mt-2 space-y-2 data-[state=inactive]:hidden">
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(outboundDialog.mimeDraft);
+                      toast({ title: "Copied MIME draft" });
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </Button>
+                </div>
+                <pre className="text-xs whitespace-pre-wrap font-mono bg-muted/40 rounded-md border p-3 max-h-[45vh] overflow-auto">
+                  {outboundDialog.mimeDraft}
+                </pre>
+              </TabsContent>
+              <TabsContent value="all" className="flex-1 min-h-0 mt-2 space-y-2 data-[state=inactive]:hidden">
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs gap-1"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(JSON.stringify(outboundDialog, null, 2));
+                      toast({ title: "Copied full payload" });
+                    }}
+                  >
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </Button>
+                </div>
+                <pre className="text-xs whitespace-pre-wrap font-mono bg-muted/40 rounded-md border p-3 max-h-[45vh] overflow-auto">
+                  {JSON.stringify(outboundDialog, null, 2)}
+                </pre>
+              </TabsContent>
+            </Tabs>
+          )}
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setOutboundDialog(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit dialog */}
       <Dialog open={!!editingItem} onOpenChange={(open) => !open && setEditingItem(null)}>
@@ -170,7 +349,11 @@ export function ReviewQueueClient() {
             <Button
               onClick={() => {
                 if (editingItem) {
-                  actionMut.mutate({ id: editingItem.id, action: "edit", editedContent: editContent });
+                  actionMut.mutate({
+                    id: editingItem.id,
+                    action: "edit",
+                    editedContent: editContent,
+                  });
                   // Don't close — user can now approve
                   toast({ title: "Content updated", description: "Now you can approve the item." });
                   setEditingItem(null);
@@ -189,15 +372,25 @@ export function ReviewQueueClient() {
 
 interface ApprovalCardProps {
   item: ApprovalItem;
-  loading: boolean;
-  onApprove: () => void;
+  autoSendReplies: boolean;
+  actionLoading: boolean;
+  onApprove: (opts?: { sendViaGmail?: boolean }) => void;
   onReject: () => void;
   onSnooze: () => void;
   onEdit: () => void;
 }
 
-function ApprovalCard({ item, onApprove, onReject, onSnooze, onEdit }: ApprovalCardProps) {
+function ApprovalCard({
+  item,
+  autoSendReplies,
+  actionLoading,
+  onApprove,
+  onReject,
+  onSnooze,
+  onEdit,
+}: ApprovalCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [sendViaGmailOnce, setSendViaGmailOnce] = useState(false);
 
   const typeConfig: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string; label: string }> = {
     reply: { icon: Reply, color: "text-blue-600", label: "Reply Draft" },
@@ -288,24 +481,72 @@ function ApprovalCard({ item, onApprove, onReject, onSnooze, onEdit }: ApprovalC
         )}
 
         <p className="text-[10px] text-muted-foreground/60">{formatRelativeDate(new Date(item.createdAt))}</p>
+
+        {item.type === "reply" && (
+          <div className="rounded-md border border-border/80 bg-muted/20 px-2 py-1.5">
+            {autoSendReplies ? (
+              <p className="text-[10px] text-muted-foreground leading-snug">
+                Auto-send is on — this reply will be sent through Gmail when you approve (real inbox threads only; demo seed data cannot send).
+              </p>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Switch
+                  id={`gmail-send-${item.id}`}
+                  checked={sendViaGmailOnce}
+                  onCheckedChange={setSendViaGmailOnce}
+                  className="scale-90 origin-left"
+                />
+                <Label
+                  htmlFor={`gmail-send-${item.id}`}
+                  className="text-[10px] leading-snug cursor-pointer font-normal text-muted-foreground"
+                >
+                  Send via Gmail when I approve
+                </Label>
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="px-4 pb-3 pt-0 gap-1.5 flex-wrap">
-        <Button size="sm" className="h-7 text-xs gap-1 flex-1" onClick={onApprove}>
-          <CheckCircle className="h-3.5 w-3.5" /> Approve
+        <Button
+          size="sm"
+          className="h-7 text-xs gap-1 flex-1"
+          disabled={actionLoading}
+          onClick={() =>
+            onApprove(
+              item.type === "reply"
+                ? { sendViaGmail: autoSendReplies || sendViaGmailOnce }
+                : undefined
+            )
+          }
+        >
+          {actionLoading ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <CheckCircle className="h-3.5 w-3.5" />
+          )}
+          Approve
         </Button>
         {(item.type === "reply" || item.type === "task") && (
-          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={onEdit}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1"
+            disabled={actionLoading}
+            onClick={onEdit}
+          >
             <Pencil className="h-3.5 w-3.5" /> Edit
           </Button>
         )}
-        <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={onSnooze}>
+        <Button size="sm" variant="outline" className="h-7 text-xs gap-1" disabled={actionLoading} onClick={onSnooze}>
           <Clock className="h-3.5 w-3.5" />
         </Button>
         <Button
           size="sm"
           variant="ghost"
           className="h-7 text-xs gap-1 text-destructive hover:text-destructive hover:bg-destructive/10"
+          disabled={actionLoading}
           onClick={onReject}
         >
           <XCircle className="h-3.5 w-3.5" /> Reject

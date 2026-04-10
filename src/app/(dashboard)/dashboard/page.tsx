@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { ensureGmailSyncEnabledIfNeeded } from "@/lib/settings-bootstrap";
 import { AppHeader } from "@/components/layout/app-header";
 import { DashboardClient } from "@/components/dashboard/dashboard-client";
 import { format } from "date-fns";
@@ -8,6 +9,8 @@ import { parseJsonArray } from "@/lib/utils";
 export default async function DashboardPage() {
   const session = await auth();
   if (!session?.userId) return null;
+
+  await ensureGmailSyncEnabledIfNeeded(session.userId);
 
   const today = new Date();
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());

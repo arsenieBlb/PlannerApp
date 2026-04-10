@@ -10,7 +10,7 @@ import {
 } from "date-fns";
 import {
   Plus, ChevronLeft, ChevronRight, CheckSquare, Loader2, Trash2,
-  Clock, MapPin, AlignLeft, X, Calendar, Tag, Pencil, ChevronRight as Arrow,
+  Clock, MapPin, AlignLeft, X, Calendar, Tag, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -96,7 +96,6 @@ export function CalendarClient() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createAtTime, setCreateAtTime] = useState<Date | undefined>();
   const [selectedEvent, setSelectedEvent] = useState<TimeEvent | null>(null);
-  const [editingItem, setEditingItem] = useState<TimeEvent | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
   // Scroll to current time on mount / view change
@@ -304,8 +303,6 @@ export function CalendarClient() {
             {view === "month" && (
               <MonthView
                 currentDate={currentDate}
-                plannerItems={plannerItems}
-                googleEvents={googleEvents}
                 onDayClick={(d) => { setCurrentDate(d); setView("day"); }}
                 onEventClick={setSelectedEvent}
                 toTimeEvents={toTimeEvents}
@@ -330,7 +327,14 @@ export function CalendarClient() {
           onClose={() => setSelectedEvent(null)}
           onDone={() => doneMut.mutate(selectedEvent.id)}
           onDelete={() => deleteMut.mutate(selectedEvent.id)}
-          onEdit={() => { setEditingItem(selectedEvent); setSelectedEvent(null); }}
+          onEdit={() => {
+            const ev = selectedEvent;
+            setSelectedEvent(null);
+            if (ev) {
+              setCreateAtTime(ev.startTime);
+              setShowCreateDialog(true);
+            }
+          }}
         />
       )}
 
@@ -818,10 +822,8 @@ function DayTimeGrid({ currentDate, events, gridRef, onEventClick, onClickSlot }
 
 // ─── Month View ───────────────────────────────────────────────────────────────
 
-function MonthView({ currentDate, plannerItems, googleEvents, onDayClick, onEventClick, toTimeEvents }: {
+function MonthView({ currentDate, onDayClick, onEventClick, toTimeEvents }: {
   currentDate: Date;
-  plannerItems: PlannerItem[];
-  googleEvents: GoogleEvent[];
   onDayClick: (d: Date) => void;
   onEventClick: (e: TimeEvent) => void;
   toTimeEvents: (days: Date[]) => TimeEvent[];
@@ -892,7 +894,7 @@ function MonthView({ currentDate, plannerItems, googleEvents, onDayClick, onEven
                     onClick={() => onDayClick(day)}
                     className="w-full text-left text-[10px] text-muted-foreground hover:text-foreground px-1.5 flex items-center gap-0.5"
                   >
-                    <Arrow className="h-2.5 w-2.5" />
+                    <ChevronRight className="h-2.5 w-2.5" />
                     {extra} more
                   </button>
                 )}
@@ -984,7 +986,7 @@ function ListView({ plannerItems, googleEvents, onEventClick, toTimeEvents }: {
                             <p className={cn("text-sm font-semibold", isDone && "line-through text-muted-foreground")}>
                               {e.title}
                             </p>
-                            <Arrow className="h-4 w-4 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5" />
+                            <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 opacity-0 group-hover:opacity-100 transition-opacity mt-0.5" />
                           </div>
 
                           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">

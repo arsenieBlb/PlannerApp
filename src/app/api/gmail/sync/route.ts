@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { prisma } from "@/lib/db";
 import { syncGmailForProfile } from "@/lib/gmail/sync";
 
 export async function POST() {
@@ -9,6 +10,14 @@ export async function POST() {
   }
   if (session.error === "RefreshAccessTokenError") {
     return NextResponse.json({ error: "Token refresh failed — please re-authenticate" }, { status: 401 });
+  }
+
+  const settings = await prisma.settings.findUnique({ where: { profileId: session.userId } });
+  if (!settings?.gmailSyncEnabled) {
+    return NextResponse.json(
+      { error: "Gmail sync is turned off — enable it in Settings to sync." },
+      { status: 403 }
+    );
   }
 
   try {

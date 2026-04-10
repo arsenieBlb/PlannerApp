@@ -206,6 +206,53 @@ export async function POST(
       return NextResponse.json({ data: { ok: true } });
     }
 
+    case "create_task": {
+      const extracted = await ai.extractTasksAndDeadlines(content);
+      if (extracted.length === 0) {
+        return NextResponse.json({
+          data: { tasks: [], message: "No actionable tasks detected in this email." },
+        });
+      }
+
+      const oldApprovals = await prisma.approvalItem.findMany({
+        where: { emailId: id, type: "task", status: "pending" },
+      });
+      for (const a of oldApprovals) {
+        await prisma.approvalItem.delete({ where: { id: a.id } });
+        if (a.taskId) {
+          await prisma.task.delete({ where: { id: a.taskId } }).catch(() => {});
+        }
+      }
+
+      const created: { taskId: string; title: string }[] = [];
+      for (const t of extracted) {
+        const task = await prisma.task.create({
+          data: {
+            emailId: id,
+            title: t.title,
+            description: t.description,
+            dueDate: t.dueDate,
+            priority: t.priority,
+          },
+        });
+        await prisma.approvalItem.create({
+          data: {
+            profileId: session.userId,
+            type: "task",
+            status: "pending",
+            priority: t.priority,
+            title: t.title,
+            description: t.description ?? undefined,
+            emailId: id,
+            taskId: task.id,
+          },
+        });
+        created.push({ taskId: task.id, title: t.title });
+      }
+
+      return NextResponse.json({ data: { tasks: created, count: created.length } });
+    }
+
     default:
       return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }

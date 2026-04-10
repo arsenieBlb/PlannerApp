@@ -83,7 +83,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Ensure default settings exist
         await prisma.settings.upsert({
           where: { profileId: upserted.id },
-          create: { profileId: upserted.id },
+          create: {
+            profileId: upserted.id,
+            gmailSyncEnabled: true,
+            calendarSyncEnabled: true,
+          },
           update: {},
         });
 

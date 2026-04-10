@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useMutation } from "@tanstack/react-query";
 import {
   Sparkles, Reply, Calendar, CheckCheck, ClipboardList,
   Loader2, ChevronDown, ChevronUp, User, Send, Pencil,
-  RefreshCw, CheckCircle,
+  RefreshCw, CheckCircle, Tags, ListTodo, MessageSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 import { formatFullDate, confidenceLabel, confidenceColor } from "@/lib/utils";
+import { sanitizeEmailHtml } from "@/lib/sanitize-email-html";
 import type { ParsedEmail, ReplyStyle } from "@/types";
 
 interface EmailViewProps {
@@ -125,26 +126,69 @@ export function EmailView({ email, onClose: _onClose, onAction }: EmailViewProps
     onError: (e) => toast({ title: "Failed", description: (e as Error).message, variant: "destructive" }),
   });
 
+  const classifyMut = useMutation({
+    mutationFn: () => emailAction(email.id, "classify"),
+    onSuccess: () => {
+      onAction();
+      toast({ title: "Email classified", description: "Tags and category updated.", variant: "success" });
+    },
+    onError: (e) => toast({ title: "Classify failed", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const suggestReplyMut = useMutation({
+    mutationFn: () => emailAction(email.id, "suggest_reply", { style: replyStyle }),
+    onSuccess: () => {
+      onAction();
+      toast({
+        title: "Reply draft added",
+        description: "Open the Review queue to approve or edit.",
+        variant: "success",
+      });
+    },
+    onError: (e) => toast({ title: "Suggest reply failed", description: (e as Error).message, variant: "destructive" }),
+  });
+
+  const createTaskMut = useMutation({
+    mutationFn: () => emailAction(email.id, "create_task") as Promise<{ tasks?: unknown[]; count?: number; message?: string }>,
+    onSuccess: (data) => {
+      onAction();
+      const n = data?.count ?? (Array.isArray(data?.tasks) ? data.tasks.length : 0);
+      if (n === 0) {
+        toast({ title: "No tasks found", description: data?.message ?? "Try another email.", variant: "default" });
+      } else {
+        toast({
+          title: `${n} task${n === 1 ? "" : "s"} added to queue`,
+          description: "Review them under Queue → Tasks.",
+          variant: "success",
+        });
+      }
+    },
+    onError: (e) => toast({ title: "Extract tasks failed", description: (e as Error).message, variant: "destructive" }),
+  });
+
   // Send edited draft to queue (updates the draft body via approval edit)
   const sendToQueueMut = useMutation({
     mutationFn: async () => {
-      if (!draft) return;
-      // If body was edited, update the draft via the approvals endpoint
+      if (!draft) throw new Error("No draft to save");
       if (editedBody !== draft.body) {
-        // Find the approval item for this draft and patch it
         const approvalsRes = await fetch(`/api/approvals?status=pending`);
+        if (!approvalsRes.ok) throw new Error("Could not load the review queue");
         const approvals = await approvalsRes.json();
         const item = approvals.data?.find(
           (a: { type: string; replyDraft?: { id: string } }) =>
             a.type === "reply" && a.replyDraft?.id === draft.id
         );
-        if (item) {
-          await fetch(`/api/approvals/${item.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ action: "edit", editedContent: editedBody }),
-          });
+        if (!item) {
+          throw new Error(
+            "No matching queue item found. Generate the draft again, then save to the queue."
+          );
         }
+        const patchRes = await fetch(`/api/approvals/${item.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "edit", editedContent: editedBody }),
+        });
+        if (!patchRes.ok) throw new Error("Could not save your edits to the queue");
       }
     },
     onSuccess: () => {
@@ -153,6 +197,11 @@ export function EmailView({ email, onClose: _onClose, onAction }: EmailViewProps
     },
     onError: (e) => toast({ title: "Failed", description: (e as Error).message, variant: "destructive" }),
   });
+
+  const safeBodyHtml = useMemo(
+    () => (email.bodyHtml ? sanitizeEmailHtml(email.bodyHtml) : null),
+    [email.bodyHtml]
+  );
 
   const tags = email.aiTags ?? [];
 
@@ -229,6 +278,48 @@ export function EmailView({ email, onClose: _onClose, onAction }: EmailViewProps
           >
             <CheckCheck className="h-3.5 w-3.5 mr-1.5" />
             No Reply Needed
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => classifyMut.mutate()}
+            disabled={classifyMut.isPending}
+          >
+            {classifyMut.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <Tags className="h-3.5 w-3.5 mr-1.5 text-violet-500" />
+            )}
+            Classify
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => suggestReplyMut.mutate()}
+            disabled={suggestReplyMut.isPending}
+          >
+            {suggestReplyMut.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <MessageSquare className="h-3.5 w-3.5 mr-1.5 text-sky-500" />
+            )}
+            Quick draft
+          </Button>
+
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => createTaskMut.mutate()}
+            disabled={createTaskMut.isPending}
+          >
+            {createTaskMut.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+            ) : (
+              <ListTodo className="h-3.5 w-3.5 mr-1.5 text-emerald-600" />
+            )}
+            Extract tasks
           </Button>
         </div>
 
@@ -467,10 +558,10 @@ export function EmailView({ email, onClose: _onClose, onAction }: EmailViewProps
           </button>
           {showBody && (
             <div className="rounded-lg border bg-muted/20 p-4">
-              {email.bodyHtml ? (
+              {safeBodyHtml ? (
                 <div
                   className="prose prose-sm max-w-none text-sm"
-                  dangerouslySetInnerHTML={{ __html: email.bodyHtml }}
+                  dangerouslySetInnerHTML={{ __html: safeBodyHtml }}
                 />
               ) : (
                 <pre className="text-sm whitespace-pre-wrap font-sans leading-relaxed">

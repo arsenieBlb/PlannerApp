@@ -30,9 +30,10 @@ export async function GET(request: NextRequest) {
     orderBy: { startTime: "asc" },
   });
 
-  // Google Calendar events (only if access token available)
+  const settings = await prisma.settings.findUnique({ where: { profileId: session.userId } });
+
   let googleEvents: Awaited<ReturnType<typeof listCalendarEvents>> = [];
-  if (session.accessToken) {
+  if (settings?.calendarSyncEnabled && session.accessToken) {
     try {
       googleEvents = await listCalendarEvents(session.accessToken, { timeMin, timeMax });
     } catch (err) {

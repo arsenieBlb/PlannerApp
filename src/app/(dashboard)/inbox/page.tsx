@@ -12,10 +12,10 @@ export default async function InboxPage() {
       <AppHeader
         session={session as Parameters<typeof AppHeader>[0]["session"]}
         title="Inbox Assistant"
-        subtitle="AI-powered email management"
+        subtitle="Local inbox — pull from Gmail with Sync (see sidebar list)"
         actions={
           <Button asChild size="sm" variant="outline">
-            <Link href="/settings">Connect Gmail</Link>
+            <Link href="/settings">Sync &amp; Gmail settings</Link>
           </Button>
         }
       />
