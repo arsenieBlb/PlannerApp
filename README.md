@@ -1,68 +1,99 @@
-# Planner
+# AI-Email-Calendar-Assistant
 
-**Your inbox and calendar, with an assistant that waits for your green light.**
+**Understand your inbox, shape your calendar, and act on your terms.**
 
-Planner connects to Gmail and Google Calendar to help you see what matters, draft responses, and capture meetings and tasks—without ever deciding for you. Everything important flows through a single review step so you stay in control.
-
----
-
-## What Planner does for you
-
-Planner reads the signal in your email: what needs a reply, what looks like a meeting or deadline, and what deserves your attention next. It presents that work in plain language—summaries, categories, and priorities—so you spend less time decoding threads and more time choosing what to do.
-
-When Planner spots something actionable, it prepares **suggestions**: a reply you can edit, a calendar item you can refine, or a task you can keep or discard. Those suggestions are proposals, not actions. Your Gmail and calendar only change when you say so.
+AI-Email-Calendar-Assistant works alongside Gmail and Google Calendar. It helps you see what matters in your email, prepares thoughtful suggestions, and keeps your schedule in view—while you remain the person who actually sends, schedules, and commits.
 
 ---
 
-## How you work with Planner
+## What it is
 
-You sign in with Google and sync your inbox when you want an up-to-date view. Planner highlights messages that look important and organizes suggestions into one place. You move through your day by **reviewing**, **editing**, **approving**, **rejecting**, or **snoozing** items—whatever fits how you work.
+AI-Email-Calendar-Assistant is a personal assistant for people who live in email and calendar. It brings messages into a clear workspace, adds short summaries and signals (such as topic and priority), and turns messy threads into **concrete suggestions**: reply drafts, calendar ideas, tasks, and reminders you can accept, change, or set aside.
 
-Approved replies can be sent through your own Gmail account. Approved calendar suggestions become part of how you plan. The product is built around that rhythm: **see → review → decide**.
+It is built for **decision-making**, not autopilot. The product prepares work; you finish it.
 
 ---
 
-## The main experience
+## The problem it solves
+
+Most of us do not lack email—we lack **clarity**. Important asks hide in long threads. Reply pressure builds up. Meetings and deadlines appear in prose instead of on the calendar. Tools that “just do it for you” create a different problem: you stop trusting what was sent or booked in your name.
+
+AI-Email-Calendar-Assistant addresses overload by **organizing intent** and **queueing proposals** so you can respond on purpose, not on panic.
+
+---
+
+## How it works, in practice
+
+From your perspective, the app does three things in a loop:
+
+1. **Bring mail in** so you are looking at a focused copy of your inbox, not an endless raw list.  
+2. **Interpret and suggest**—summaries, categories, and proposed next steps tied to real messages.  
+3. **Hold those proposals for you** until you review them. Only what you approve moves forward.
+
+Google Calendar appears alongside your own planning items so your day is one picture, not two tabs fighting for attention.
+
+---
+
+## Typical flow: from sign-in to daily use
+
+**First session**  
+You sign in with your Google account—the same identity you use for Gmail and Calendar. You pull in recent mail when you want the app current. The assistant reads what came in and starts labeling what looks important, time-sensitive, or worth a reply.
+
+**Ongoing rhythm**  
+You open the app when you start work or between meetings. You skim the **dashboard** for urgency, dip into the **inbox** for detail, and clear the **review queue** so nothing implied by email stays stuck in your head. You sync when you need fresh mail; you approve when you are ready to commit.
+
+Over time, the habit is simple: **sync → scan → review → done**—with the assistant doing the prep so your time goes to judgment, not archaeology.
+
+---
+
+## Main areas and what they are for
 
 **Dashboard**  
-A single glance at unread mail, what’s waiting for your decision, messages that look urgent, and what’s on your plate today.
+Your status board: unread volume, what is waiting in the review queue, messages that look important, and what is happening today. Use it to decide where to spend the next few minutes.
 
 **Inbox**  
-Your synced messages in one focused view. Search and filter by how Planner has categorized mail, open a thread, and read summaries and context alongside the original message.
+Your messages in a calmer layout. Search and filter by how the assistant has categorized mail. Open a thread to read the original content together with summaries and context so you are never guessing what the thread was about.
 
 **Review Queue**  
-Where Planner earns its keep. Reply drafts, meeting and deadline suggestions, reminders, and extracted tasks line up here. Nothing leaves this queue until you’re satisfied with it—or until you dismiss it.
+The heart of the product. Here you see **reply drafts**, **calendar-related suggestions** (events, deadlines, reminders), and **tasks** extracted from email. Each row is something the assistant thinks you should consider—not something it has already executed.
 
 **Calendar & planner**  
-Your schedule in one place: what you’ve planned yourself and what’s coming from Google Calendar, so deadlines and events don’t live in separate mental tabs.
+A combined view of what you have planned yourself and what comes from Google Calendar. Deadlines, blocks, and reminders sit next to external events so planning and email-informed work stay connected.
 
-**Settings**  
-Tune how aggressively Planner syncs, how you want to be notified, and how much you want the assistant to do on its own—always within an approval-first frame.
-
----
-
-## Approval-first, by design
-
-Planner is for people who want **speed without surprise**.
-
-- Nothing is sent from your account by default until you approve it.  
-- Nothing is written to your calendar by default until you approve it.  
-- Suggestions don’t disappear into the background—they stay visible until you act.  
-
-You get the upside of an assistant—drafts, structure, and prioritization—without handing over the keys.
+**Preferences (where offered)**  
+Choices that affect your day-to-day experience—such as whether to be nudged when something new needs attention—without changing the rule that **you approve before the world changes**.
 
 ---
 
-## Who Planner is for
+## How items move through the app
 
-- **Students and researchers** juggling coursework, group threads, and deadlines.  
-- **Professionals** who live in email: client follow-ups, internal asks, and meeting logistics.  
-- **Anyone** who has tried “full autopilot” AI and decided they still want the last word.
+Think of four stages: **email in**, **suggestions out**, **review**, **outcome**.
 
-If your week runs on Gmail and Calendar and you’d rather **review once** than **guess twice**, Planner is built for you.
+| Stage | What happens |
+|--------|----------------|
+| **Email in** | Messages from Gmail appear in your inbox view with summaries and tags so you can triage quickly. |
+| **Suggestions** | The assistant may attach a **reply draft**, propose a **calendar item** (meeting, deadline, or reminder), or surface a **task** when the text clearly implies work to do. These appear as items in the review queue, linked back to the message they came from. |
+| **Review** | You open the queue, read each suggestion in context, and **edit**, **approve**, **reject**, or **snooze**. Snoozing is for “not now”—the item stays yours, but not in today’s face. |
+| **Outcome** | When you approve a reply, it can be sent **as you**, through Gmail, when you choose to send it. When you approve a calendar-style suggestion, it becomes part of how you plan. Tasks and reminders you keep become part of your tracked work—not lost notes at the bottom of a thread. |
+
+Nothing in that pipeline bypasses you. Email informs the assistant; the assistant proposes; **you** authorize.
 
 ---
 
-## Why use Planner
+## Approval-first: how you stay in control
 
-Inboxes don’t fail from lack of tools—they fail from overload and unclear next steps. Planner reduces noise, surfaces intent, and packages work into decisions you can make quickly. It’s not here to replace your judgment; it’s here to **prepare the decision** so you can move with confidence.
+AI-Email-Calendar-Assistant is deliberately **approval-first**:
+
+- **Replies** are drafts until you say otherwise.  
+- **Calendar changes** from suggestions follow the same rule—proposed first, applied only with your consent.  
+- **Tasks and reminders** stay as suggestions until you treat them as real work items through the review flow.
+
+You get structure, language, and prioritization from AI. You keep accountability, tone, and timing. The product is useful precisely because it does **not** pretend to be you.
+
+---
+
+## Why it matters in everyday life
+
+Most days are not short of information—they are short of **trusted next steps**. AI-Email-Calendar-Assistant reduces the cost of catching up: fewer threads re-read from scratch, fewer “I will reply later” loops, fewer calendar items that never left the email body. It is for mornings when you need the inbox to tell you where to start, and for afternoons when you need to close loops before you log off—without wondering what an assistant already did in your name.
+
+If you want **help that waits for your green light**, AI-Email-Calendar-Assistant is built for how you actually work.
