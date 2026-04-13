@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// ─── JSON array helpers (SQLite stores arrays as JSON strings) ────────────────
+// JSON array helpers (list-like values are stored as JSON strings)
 
 export function parseJsonArray<T = string>(value: string | null | undefined): T[] {
   if (!value) return [];
@@ -22,7 +22,7 @@ export function stringifyArray(arr: unknown[]): string {
   return JSON.stringify(arr);
 }
 
-// ─── Date formatting ──────────────────────────────────────────────────────────
+// Date formatting
 
 export function formatEmailDate(date: Date): string {
   if (isToday(date)) return format(date, "h:mm a");
@@ -38,7 +38,7 @@ export function formatFullDate(date: Date): string {
   return format(date, "PPpp");
 }
 
-// ─── Email helpers ────────────────────────────────────────────────────────────
+// Email helpers
 
 export function extractEmailAddress(from: string): string {
   const match = from.match(/<(.+?)>/);
@@ -52,10 +52,10 @@ export function extractDisplayName(from: string): string {
 
 export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
-  return text.slice(0, maxLength).trimEnd() + "…";
+  return text.slice(0, maxLength).trimEnd() + "...";
 }
 
-// ─── Confidence display ───────────────────────────────────────────────────────
+// Confidence display
 
 export function confidenceLabel(score: number): string {
   if (score >= 0.85) return "High confidence";
@@ -69,7 +69,7 @@ export function confidenceColor(score: number): string {
   return "text-red-500";
 }
 
-// ─── Priority badge styling ───────────────────────────────────────────────────
+// Priority badge styling
 
 export function priorityBadgeClass(priority: string): string {
   switch (priority) {

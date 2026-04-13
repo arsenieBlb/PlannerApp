@@ -34,3 +34,6 @@ yarn-error.log*
 
 # Prisma
 prisma/migrations/
+
+# TypeScript incremental (local cache — do not commit)
+*.tsbuildinfo
